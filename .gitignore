@@ -1,12 +1,15 @@
 # Prerequisites
 *.d
-
+ecli
+ecc
+*.json
+.clangd
 # Object files
 *.o
 *.ko
 *.obj
 *.elf
-
+vmlinux.h
 # Linker output
 *.ilk
 *.map
